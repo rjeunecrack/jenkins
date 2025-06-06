@@ -13,6 +13,18 @@ provider "aws" {
 }
 
 # Variables déclarations
+
+variable "allowed_ssh_cidrs" {
+  description = "CIDRs autorisés pour SSH"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "instance_type" {
+  description = "Type d'instance EC2"
+  type        = string
+  default     = "t3.micro"
+}
 variable "aws_region" {
   description = "Région AWS"
   type        = string

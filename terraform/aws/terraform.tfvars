@@ -3,7 +3,7 @@ aws_region     = "us-east-1"
 environment    = "dev"
 instance_type  = "t2.micro"
 
-azure_bastion_ip = "sera défini par Jenkins"
+azure_bastion_ip = "172.16.1.4/27"
 azure_vpn_ip = "128.203.68.163"
 azure_vnet_cidr = "172.16.0.0/16"
 vpn_key        = "Gdg59G5SG,;g:d,SGIDSJ9548!"

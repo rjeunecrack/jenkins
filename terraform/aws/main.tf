@@ -41,30 +41,6 @@ variable "project_name" {
   default     = "energy-hybrid"
 }
 
-# Variables
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "eu-west-1"
-}
-
-variable "azure_vpn_ip" {
-  description = "Azure VPN Gateway public IP"
-  type        = string
-}
-
-variable "vpn_key" {
-  description = "VPN Pre-Shared Key"
-  type        = string
-  sensitive   = true
-}
-
-variable "project_name" {
-  description = "Project name"
-  type        = string
-  default     = "VPN"
-}
-
 # VPC Principal
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"

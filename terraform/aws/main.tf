@@ -1,3 +1,4 @@
+# Configuration du provider AWS
 terraform {
   required_providers {
     aws = {
@@ -5,225 +6,391 @@ terraform {
       version = "~> 5.0"
     }
   }
-  required_version = ">= 1.0"
 }
 
 provider "aws" {
-  region = var.aws_region
-}
-
-# Variables déclarations
-
-variable "allowed_ssh_cidrs" {
-  description = "CIDRs autorisés pour SSH"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "instance_type" {
-  description = "Type d'instance EC2"
-  type        = string
-  default     = "t2.micro"
-}
-variable "aws_region" {
-  description = "Région AWS"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "azure_vpn_ip" {
-  description = "IP publique du VPN Gateway Azure"
-  type        = string
-}
-
-variable "azure_bastion_ip" {
-  description = "IP du bastion Azure"
-  type        = string
-}
-
-variable "vpn_key" {
-  description = "Clé pré-partagée pour le VPN IPSec"
-  type        = string
-  sensitive   = true
-}
-
-variable "project_name" {
-  description = "Nom du projet"
-  type        = string
-  default     = "energy-hybrid"
+  region = "us-east-1"
 }
 
 # VPC Principal
-resource "aws_vpc" "main" {
+resource "aws_vpc" "main_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
-
+  
   tags = {
-    Name    = "${var.project_name}-vpc"
-    Project = var.project_name
+    Name = "3tier"
+    Environment = "production"
   }
 }
 
 # Internet Gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
+resource "aws_internet_gateway" "main_igw" {
+  vpc_id = aws_vpc.main_vpc.id
+  
   tags = {
-    Name    = "${var.project_name}-igw"
-    Project = var.project_name
+    Name = "3tier-igw"
   }
 }
 
-# Subnets
-resource "aws_subnet" "frontend" {
-  vpc_id                  = aws_vpc.main.id
+# Sous-réseau Web (Frontend)
+resource "aws_subnet" "web_subnet" {
+  vpc_id                  = aws_vpc.main_vpc.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = "us-east-1a"
   map_public_ip_on_launch = true
-
+  
   tags = {
-    Name    = "${var.project_name}-frontend-subnet"
-    Tier    = "frontend"
-    Project = var.project_name
+    Name = "subnetweb1"
+    Tier = "web"
   }
 }
 
-resource "aws_subnet" "backend" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "${var.aws_region}a"
-
+# Sous-réseau App (Backend)
+resource "aws_subnet" "app_subnet" {
+  vpc_id                  = aws_vpc.main_vpc.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+  
   tags = {
-    Name    = "${var.project_name}-backend-subnet"
-    Tier    = "backend"
-    Project = var.project_name
+    Name = "subnetapp1"
+    Tier = "app"
   }
 }
 
-resource "aws_subnet" "database" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.3.0/24"
-  availability_zone = "${var.aws_region}a"
-
+# Sous-réseau Database
+resource "aws_subnet" "db_subnet" {
+  vpc_id                  = aws_vpc.main_vpc.id
+  cidr_block              = "10.0.3.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+  
   tags = {
-    Name    = "${var.project_name}-database-subnet"
-    Tier    = "database"
-    Project = var.project_name
+    Name = "subnetdb1"
+    Tier = "database"
   }
 }
 
-# Route Tables
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
+# Route Table pour subnets publics
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main_vpc.id
+  
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
+    gateway_id = aws_internet_gateway.main_igw.id
   }
-
-  # Route vers Azure via VPN
+  
+  # Route vers Azure bastion
   route {
-    cidr_block = "172.16.0.0/16"
-    gateway_id = aws_vpn_gateway.main.id
+    cidr_block = "172.16.1.0/27"
+    gateway_id = aws_vpn_gateway.vpn_gw.id
   }
-
+  
   tags = {
-    Name    = "${var.project_name}-public-rt"
-    Project = var.project_name
+    Name = "public-route-table"
   }
 }
 
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
+# Associations des route tables
+resource "aws_route_table_association" "web_rta" {
+  subnet_id      = aws_subnet.web_subnet.id
+  route_table_id = aws_route_table.public_rt.id
+}
 
-  # Route vers Azure via VPN
-  route {
-    cidr_block = "172.16.0.0/16"
-    gateway_id = aws_vpn_gateway.main.id
-  }
+resource "aws_route_table_association" "app_rta" {
+  subnet_id      = aws_subnet.app_subnet.id
+  route_table_id = aws_route_table.public_rt.id
+}
 
+resource "aws_route_table_association" "db_rta" {
+  subnet_id      = aws_subnet.db_subnet.id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+# VPN Gateway pour connexion IPSec avec Azure
+resource "aws_vpn_gateway" "vpn_gw" {
+  vpc_id = aws_vpc.main_vpc.id
+  
   tags = {
-    Name    = "${var.project_name}-private-rt"
-    Project = var.project_name
+    Name = "aws-vpn-gateway"
   }
 }
 
-# Route Table Associations
-resource "aws_route_table_association" "frontend" {
-  subnet_id      = aws_subnet.frontend.id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table_association" "backend" {
-  subnet_id      = aws_subnet.backend.id
-  route_table_id = aws_route_table.private.id
-}
-
-resource "aws_route_table_association" "database" {
-  subnet_id      = aws_subnet.database.id
-  route_table_id = aws_route_table.private.id
-}
-
-# ========== CONFIGURATION VPN ==========
-
-# Customer Gateway (représente Azure)
-resource "aws_customer_gateway" "azure" {
+# Customer Gateway (représentant Azure)
+resource "aws_customer_gateway" "azure_cgw" {
   bgp_asn    = 65000
-  ip_address = var.azure_vpn_ip
+  ip_address = "20.20.20.20" # IP publique d'Azure (à remplacer)
   type       = "ipsec.1"
-
+  
   tags = {
-    Name    = "${var.project_name}-azure-cgw"
-    Project = var.project_name
+    Name = "azure-customer-gateway"
   }
 }
 
-# Virtual Private Gateway
-resource "aws_vpn_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
+# Connexion VPN
+resource "aws_vpn_connection" "azure_vpn" {
+  vpn_gateway_id      = aws_vpn_gateway.vpn_gw.id
+  customer_gateway_id = aws_customer_gateway.azure_cgw.id
+  type                = "ipsec.1"
+  static_routes_only  = true
+  
   tags = {
-    Name    = "${var.project_name}-vpn-gw"
-    Project = var.project_name
+    Name = "aws-azure-vpn"
   }
 }
 
-# VPN Connection vers Azure
-resource "aws_vpn_connection" "azure" {
-  customer_gateway_id = aws_customer_gateway.azure.id
-  type               = "ipsec.1"
-  static_routes_only = true
-  vpn_gateway_id     = aws_vpn_gateway.main.id
+# Route VPN statique
+resource "aws_vpn_connection_route" "azure_route" {
+  vpn_connection_id      = aws_vpn_connection.azure_vpn.id
+  destination_cidr_block = "172.16.1.0/27"
+}
 
-  # Tunnel 1 configuration
-  tunnel1_preshared_key = var.vpn_key
-  tunnel1_phase1_encryption_algorithms = ["AES256"]
-  tunnel1_phase1_integrity_algorithms  = ["SHA256"]
-  tunnel1_phase1_dh_group_numbers     = [14]
-  tunnel1_phase2_encryption_algorithms = ["AES256"]
-  tunnel1_phase2_integrity_algorithms  = ["SHA256"]
-  tunnel1_phase2_dh_group_numbers     = [14]
+# Groupes de sécurité
 
-  # Tunnel 2 configuration (redondance)
-  tunnel2_preshared_key = var.vpn_key
-  tunnel2_phase1_encryption_algorithms = ["AES256"]
-  tunnel2_phase1_integrity_algorithms  = ["SHA256"]
-  tunnel2_phase1_dh_group_numbers     = [14]
-  tunnel2_phase2_encryption_algorithms = ["AES256"]
-  tunnel2_phase2_integrity_algorithms  = ["SHA256"]
-  tunnel2_phase2_dh_group_numbers     = [14]
+# Groupe de sécurité Web
+resource "aws_security_group" "web_sg" {
+  name        = "WebTierSG"
+  description = "Security group for web tier"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["172.16.1.0/27"] # Bastion Azure
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = {
-    Name    = "${var.project_name}-vpn-connection"
-    Project = var.project_name
+    Name = "WebTierSG"
   }
 }
 
-# Route statique vers Azure
-resource "aws_vpn_connection_route" "azure" {
-  vpn_connection_id      = aws_vpn_connection.azure.id
-  destination_cidr_block = "172.16.0.0/16"
+# Groupe de sécurité App
+resource "aws_security_group" "app_sg" {
+  name        = "PrivateInstanceSG"
+  description = "Security group for application tier"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.web_sg.id]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["172.16.1.0/27"] # Bastion Azure
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "PrivateInstanceSG"
+  }
 }
 
+# Groupe de sécurité Database
+resource "aws_security_group" "db_sg" {
+  name        = "DBSG"
+  description = "Security group for database tier"
+  vpc_id      = aws_vpc.main_vpc.id
 
+  ingress {
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_sg.id]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["172.16.1.0/27"] # Bastion Azure
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "DBSG"
+  }
+}
+
+# Clés SSH
+resource "aws_key_pair" "web_key" {
+  key_name   = "clefront"
+  public_key = file("~/.ssh/clefront.pub") # Chemin vers votre clé publique
+}
+
+resource "aws_key_pair" "app_key" {
+  key_name   = "cleback"
+  public_key = file("~/.ssh/cleback.pub")
+}
+
+resource "aws_key_pair" "db_key" {
+  key_name   = "cledb"
+  public_key = file("~/.ssh/cledb.pub")
+}
+
+# Instances EC2
+
+# Instance Web (Frontend)
+resource "aws_instance" "web_instance" {
+  ami                    = "ami-0c02fb55956c7d316" # Amazon Linux 2
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.web_key.key_name
+  subnet_id              = aws_subnet.web_subnet.id
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+  
+  user_data = <<-EOF
+    #!/bin/bash
+    yum update -y
+    yum install -y httpd python3 python3-pip
+    pip3 install ansible
+    systemctl start httpd
+    systemctl enable httpd
+    echo "<h1>Frontend Server</h1>" > /var/www/html/index.html
+  EOF
+
+  tags = {
+    Name = "Frontend"
+    Tier = "web"
+  }
+}
+
+# Instance App (Backend)
+resource "aws_instance" "app_instance" {
+  ami                    = "ami-0c02fb55956c7d316"
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.app_key.key_name
+  subnet_id              = aws_subnet.app_subnet.id
+  vpc_security_group_ids = [aws_security_group.app_sg.id]
+  
+  user_data = <<-EOF
+    #!/bin/bash
+    yum update -y
+    yum install -y java-11-openjdk python3 python3-pip
+    pip3 install ansible
+    # Configuration application backend
+  EOF
+
+  tags = {
+    Name = "Backend"
+    Tier = "app"
+  }
+}
+
+# Instance Database
+resource "aws_instance" "db_instance" {
+  ami                    = "ami-0c02fb55956c7d316"
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.db_key.key_name
+  subnet_id              = aws_subnet.db_subnet.id
+  vpc_security_group_ids = [aws_security_group.db_sg.id]
+  
+  user_data = <<-EOF
+    #!/bin/bash
+    yum update -y
+    yum install -y mariadb-server python3 python3-pip
+    pip3 install ansible
+    systemctl start mariadb
+    systemctl enable mariadb
+  EOF
+
+  tags = {
+    Name = "DB1"
+    Tier = "database"
+  }
+}
+
+# Elastic IPs pour correspondre aux IPs données
+resource "aws_eip" "frontend_eip" {
+  instance = aws_instance.web_instance.id
+  domain   = "vpc"
+  
+  tags = {
+    Name = "Frontend-EIP"
+  }
+}
+
+resource "aws_eip" "backend_eip" {
+  instance = aws_instance.app_instance.id
+  domain   = "vpc"
+  
+  tags = {
+    Name = "Backend-EIP"
+  }
+}
+
+resource "aws_eip" "db_eip" {
+  instance = aws_instance.db_instance.id
+  domain   = "vpc"
+  
+  tags = {
+    Name = "DB-EIP"
+  }
+}
+
+# Outputs
+output "vpc_id" {
+  value = aws_vpc.main_vpc.id
+}
+
+output "frontend_public_ip" {
+  value = aws_eip.frontend_eip.public_ip
+}
+
+output "backend_public_ip" {
+  value = aws_eip.backend_eip.public_ip
+}
+
+output "database_public_ip" {
+  value = aws_eip.db_eip.public_ip
+}
+
+output "vpn_connection_id" {
+  value = aws_vpn_connection.azure_vpn.id
+}
+
+output "subnets" {
+  value = {
+    web = aws_subnet.web_subnet.id
+    app = aws_subnet.app_subnet.id
+    db  = aws_subnet.db_subnet.id
+  }
+}

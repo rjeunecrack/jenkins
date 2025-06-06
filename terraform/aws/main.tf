@@ -12,6 +12,35 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Variables déclarations
+variable "aws_region" {
+  description = "Région AWS"
+  type        = string
+  default     = "eu-west-1"
+}
+
+variable "azure_vpn_ip" {
+  description = "IP publique du VPN Gateway Azure"
+  type        = string
+}
+
+variable "azure_bastion_ip" {
+  description = "IP du bastion Azure"
+  type        = string
+}
+
+variable "vpn_key" {
+  description = "Clé pré-partagée pour le VPN IPSec"
+  type        = string
+  sensitive   = true
+}
+
+variable "project_name" {
+  description = "Nom du projet"
+  type        = string
+  default     = "energy-hybrid"
+}
+
 # Variables
 variable "aws_region" {
   description = "AWS region"

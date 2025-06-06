@@ -23,12 +23,12 @@ variable "allowed_ssh_cidrs" {
 variable "instance_type" {
   description = "Type d'instance EC2"
   type        = string
-  default     = "t3.micro"
+  default     = "t2.micro"
 }
 variable "aws_region" {
   description = "Région AWS"
   type        = string
-  default     = "eu-west-1"
+  default     = "us-east-1"
 }
 
 variable "azure_vpn_ip" {
